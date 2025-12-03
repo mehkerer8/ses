@@ -21,7 +21,7 @@ UPDATE_INTERVAL = 3600
 
 # PIPER TTS AYARLARI - SADECE BU İKİ YOL GEREKLİ
 PIPER_BINARY_PATH = "./piper/piper"  # Piper binary dosyasının yolu
-PIPER_MODEL_PATH = "/home/pixel/piper_models/tr_TR-fettah-medium.onnx"  # Model dosyası
+PIPER_MODEL_PATH = "./tr_TR-fettah-medium.onnx"  # Model dosyası
 
 # ==================== PİPER TTS SES SİSTEMİ ====================
 class VoiceEngine:
