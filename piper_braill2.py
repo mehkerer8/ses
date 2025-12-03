@@ -7,11 +7,13 @@ import time
 import json
 import requests
 import subprocess
-import threading
-from threading import Thread, Lock, Event, Queue
+from threading import Thread, Lock, Event
+from queue import Queue
+# GPIO / RPi ile çalışıyorsan
 import RPi.GPIO as GPIO
 import tempfile
-import queue
+import wave
+import pyaudio  # eğer ses çıkışı için pyaudio kullanacaksan
 
 # ==================== KONFİGÜRASYON ====================
 GITHUB_REPO = "mehkerer8/pdfs"
