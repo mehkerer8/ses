@@ -40,6 +40,8 @@ class VoiceEngine:
     
     def setup(self):
         """Piper TTS sistemini kur"""
+        global PIPER_MODEL_PATH  # Global değişkeni değiştirmek için
+        
         print("🔊 Piper TTS sistemi kuruluyor...")
         
         # Piper binary kontrolü
@@ -63,7 +65,7 @@ class VoiceEngine:
             model_dir = "/home/pixel/braille_project/piper"
             for file in os.listdir(model_dir):
                 if file.endswith('.onnx'):
-                    global PIPER_MODEL_PATH
+                    # Alternatif model bulundu, global değişkeni güncelle
                     PIPER_MODEL_PATH = os.path.join(model_dir, file)
                     print(f"✅ Alternatif model bulundu: {file}")
                     break
