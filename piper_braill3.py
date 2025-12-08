@@ -5,17 +5,13 @@ import os
 import sys
 import time
 import json
-import queue  # EKSİK OLAN BU SATIR EKLENDİ
+import queue
 import requests
 import subprocess
 from threading import Thread, Lock, Event
 from queue import Queue
-# GPIO / RPi ile çalışıyorsan
 import RPi.GPIO as GPIO
 import tempfile
-import wave
-# pyaudio import kaldırıldı çünkü kullanılmıyor ve kurulum sorunu yaratıyor
-# import pyaudio  # eğer ses çıkışı için pyaudio kullanacaksan - KALDIRILDI
 
 # ==================== KONFİGÜRASYON ====================
 GITHUB_REPO = "mehkerer8/pdfs"
@@ -23,9 +19,9 @@ GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents"
 LOCAL_BOOKS_DIR = "/home/pixel/braille_books"
 UPDATE_INTERVAL = 3600
 
-# PIPER TTS AYARLARI
-PIPER_BINARY_PATH = "./piper/piper"
-PIPER_MODEL_PATH = "./tr_TR-fettah-medium.onnx"
+# PIPER TTS AYARLARI - DÜZELTİLDİ!
+PIPER_BINARY_PATH = "/home/pixel/braille_project/piper/piper"  # TAM YOL
+PIPER_MODEL_PATH = "/home/pixel/braille_project/piper/tr_TR-fettah-medium.onnx"  # TAM YOL
 
 # ==================== PİPER TTS SES SİSTEMİ ====================
 class VoiceEngine:
@@ -49,24 +45,31 @@ class VoiceEngine:
         # Piper binary kontrolü
         if not os.path.exists(PIPER_BINARY_PATH):
             print("❌ Piper binary bulunamadı!")
-            print("Lütfen şu komutla indirin:")
-            print("  cd /home/pixel && mkdir -p piper")
-            print("  cd /home/pixel/piper")
+            print("Lütfen şu komutları çalıştırın:")
+            print("  cd ~/braille_project/piper")
             print("  wget https://github.com/rhasspy/piper/releases/download/2023.12.06-09.23.38/piper_linux-arm64")
             print("  mv piper_linux-arm64 piper")
             print("  chmod +x piper")
-            raise FileNotFoundError("Piper binary bulunamadı")
+            print("  wget https://github.com/rhasspy/piper/releases/download/2023.12.06-09.23.38/tr_TR-fettah-medium.onnx")
+            return
         
         # Model kontrolü
         if not os.path.exists(PIPER_MODEL_PATH):
-            print("❌ Piper modeli bulunamadı!")
+            print("⚠️ Piper modeli bulunamadı!")
             print("Lütfen şu komutla indirin:")
-            print("  mkdir -p /home/pixel/piper_models")
-            print("  cd /home/pixel/piper_models")
-            print("  wget https://github.com/rhasspy/piper/releases/download/2023.12.06-09.23.38/tr_TR-rüştü-hoca-tts-high.onnx")
-            raise FileNotFoundError("Piper modeli bulunamadı")
+            print("  cd ~/braille_project/piper")
+            print("  wget https://github.com/rhasspy/piper/releases/download/2023.12.06-09.23.38/tr_TR-fettah-medium.onnx")
+            # Geçici olarak başka bir model kullan
+            model_dir = "/home/pixel/braille_project/piper"
+            for file in os.listdir(model_dir):
+                if file.endswith('.onnx'):
+                    global PIPER_MODEL_PATH
+                    PIPER_MODEL_PATH = os.path.join(model_dir, file)
+                    print(f"✅ Alternatif model bulundu: {file}")
+                    break
         
-        print("✅ Piper TTS kurulu ve hazır")
+        print(f"✅ Piper TTS kurulu: {PIPER_BINARY_PATH}")
+        print(f"✅ Model: {PIPER_MODEL_PATH}")
     
     def _speech_worker(self):
         """Arka planda ses kuyruğunu işler"""
@@ -106,16 +109,17 @@ class VoiceEngine:
             # Metni temizle ve kısalt
             text = self._clean_text(text)
             
+            if not text.strip():
+                return
+            
             # Geçici WAV dosyası oluştur
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
                 wav_path = tmp_file.name
             
             # HIZLI PİPER PARAMETRELERİ
-            # --length_scale: 1.0 normal, daha küçük = daha hızlı
-            # --sentence_silence: cümleler arası sessizlik (azalt = daha hızlı)
             length_scale = max(0.6, 1.0 / speed)  # Minimum 0.6, daha hızlı
             
-            # OPTİMİZE PİPER KOMUTU - ÇOK DAHA HIZLI!
+            # OPTİMİZE PİPER KOMUTU
             cmd = [
                 'echo', f'"{text}"', '|',
                 PIPER_BINARY_PATH,
@@ -124,24 +128,24 @@ class VoiceEngine:
                 '--length_scale', str(length_scale),
                 '--noise_scale', '0.667',
                 '--noise_w', '0.8',
-                '--sentence_silence', '0.05',  # ÇOK AZALTILDI!
-                '--phoneme_silence', '0.01'    # Fonem arası sessizlik azaltıldı
+                '--sentence_silence', '0.05',
+                '--phoneme_silence', '0.01'
             ]
             
-            # Komutu çalıştır - zaman aşımı kısa tut
+            # Komutu çalıştır
             process = subprocess.run(
                 ' '.join(cmd),
                 shell=True,
                 capture_output=True,
                 text=True,
-                timeout=15  # 15 saniye zaman aşımı
+                timeout=15
             )
             
             if process.returncode != 0:
                 print(f"❌ Piper hatası: {process.stderr[:100]}")
                 return
             
-            # WAV dosyasını hızlı çal
+            # WAV dosyasını çal
             self._play_wav_fast(wav_path)
             
             # Dosyayı temizle
@@ -159,7 +163,7 @@ class VoiceEngine:
             return
         
         try:
-            # aplay ile HIZLI çal
+            # aplay ile çal
             subprocess.run(
                 ['aplay', '-q', '--buffer-time=50000', wav_path],
                 capture_output=True,
@@ -700,6 +704,11 @@ class BrailleBookReader:
             return ""
         
         try:
+            # pdftotext kontrolü
+            if not os.path.exists('/usr/bin/pdftotext'):
+                print("⚠️ pdftotext kurulu değil. Kurmak için: sudo apt-get install poppler-utils")
+                return "PDF okuma özelliği için pdftotext kurulu değil."
+            
             temp_file = "/tmp/kitap_temp.txt"
             cmd = ["pdftotext", "-layout", "-enc", "UTF-8", pdf_path, temp_file]
             subprocess.run(cmd, capture_output=True, text=True, timeout=10)
