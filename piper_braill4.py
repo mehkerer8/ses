@@ -20,8 +20,8 @@ LOCAL_BOOKS_DIR = "/home/pixel/braille_books"
 UPDATE_INTERVAL = 3600
 
 # PIPER TTS AYARLARI - DÜZELTİLDİ!
-PIPER_BINARY_PATH = "/home/pixel/braille_project/piper/piper"  # TAM YOL
-PIPER_MODEL_PATH = "/home/pixel/braille_project/piper/tr_TR-fettah-medium.onnx"  # TAM YOL
+PIPER_BINARY_PATH = "./piper"  # TAM YOL
+PIPER_MODEL_PATH = "./tr_TR-fettah-medium.onnx"  # TAM YOL
 
 # ==================== PİPER TTS SES SİSTEMİ ====================
 class VoiceEngine:
