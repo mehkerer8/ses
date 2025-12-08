@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import json
+import queue  # EKSİK OLAN BU SATIR EKLENDİ
 import requests
 import subprocess
 from threading import Thread, Lock, Event
@@ -13,7 +14,8 @@ from queue import Queue
 import RPi.GPIO as GPIO
 import tempfile
 import wave
-import pyaudio  # eğer ses çıkışı için pyaudio kullanacaksan
+# pyaudio import kaldırıldı çünkü kullanılmıyor ve kurulum sorunu yaratıyor
+# import pyaudio  # eğer ses çıkışı için pyaudio kullanacaksan - KALDIRILDI
 
 # ==================== KONFİGÜRASYON ====================
 GITHUB_REPO = "mehkerer8/pdfs"
