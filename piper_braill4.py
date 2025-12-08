@@ -20,7 +20,7 @@ LOCAL_BOOKS_DIR = "/home/pixel/braille_books"
 UPDATE_INTERVAL = 3600
 
 # PIPER TTS AYARLARI - DÜZELTİLDİ!
-PIPER_BINARY_PATH = "./piper"  # TAM YOL
+PIPER_BINARY_PATH = "./piper/piper"  # TAM YOL
 PIPER_MODEL_PATH = "./tr_TR-fettah-medium.onnx"  # TAM YOL
 
 # ==================== PİPER TTS SES SİSTEMİ ====================
@@ -965,3 +965,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
