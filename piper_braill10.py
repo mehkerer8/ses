@@ -183,9 +183,13 @@ class BrailleBookReader:
         
         # HIZ AYARLARI
         self.speech_speed = 1.0    # Ses hızı (1.0 normal)
-        self.write_speed = 0.33    # Yazma hızı: 6 harf ≈ 2 saniye
-        self.min_speed = 0.5
-        self.max_speed = 2.0
+        self.write_speed = 0.5     # Yazma hızı (0.5 saniye/her karakter)
+        self.min_speed = 0.3       # Minimum yazma hızı
+        self.max_speed = 1.0       # Maksimum yazma hızı
+        
+        # Fiziksel solenoid ayarları
+        self.solenoid_up_time = 0.1    # Solenoid yukarı çıkma süresi
+        self.solenoid_down_time = 0.05 # Solenoid aşağı inme süresi (bekleme)
         
         # Sistem durumu
         self.is_running = True
@@ -200,6 +204,10 @@ class BrailleBookReader:
         self.button_states = {}
         self.button_press_start = {}
         self.last_button_time = {}
+        self.button_debounce = {}
+        for pin in GPIOPins.ALL_BUTTONS:
+            self.button_debounce[pin] = 0
+        
         self.lock = Lock()
         
         # Dizinleri oluştur
@@ -253,17 +261,23 @@ class BrailleBookReader:
         self.voice_engine.speak_async(text, self.speech_speed)
     
     def adjust_speed(self, increase=True):
-        """Ses hızını ayarla"""
+        """Ses ve yazma hızını ayarla"""
         with self.lock:
             if increase:
-                self.speech_speed = min(self.max_speed, self.speech_speed + 0.2)
-                self.write_speed = max(0.25, self.write_speed - 0.05)
+                # Ses hızını artır (daha hızlı konuşma)
+                self.speech_speed = min(2.0, self.speech_speed + 0.2)
+                # Yazma hızını azalt (daha hızlı yazma)
+                self.write_speed = max(0.3, self.write_speed - 0.1)
             else:
-                self.speech_speed = max(self.min_speed, self.speech_speed - 0.2)
-                self.write_speed = min(0.5, self.write_speed + 0.05)
+                # Ses hızını azalt (daha yavaş konuşma)
+                self.speech_speed = max(0.5, self.speech_speed - 0.2)
+                # Yazma hızını artır (daha yavaş yazma)
+                self.write_speed = min(1.0, self.write_speed + 0.1)
             
-            speed_text = "hızlı" if self.speech_speed > 1.2 else "normal" if self.speech_speed > 0.8 else "yavaş"
-            self.speak(f"Ses hızı {speed_text}")
+            speed_text = "hızlı" if self.speech_speed > 1.3 else "normal" if self.speech_speed > 0.8 else "yavaş"
+            write_text = "hızlı" if self.write_speed < 0.4 else "normal" if self.write_speed < 0.7 else "yavaş"
+            print(f"🔧 Hız ayarı: ses={self.speech_speed:.1f} ({speed_text}), yazma={self.write_speed:.1f}s ({write_text})")
+            self.speak(f"Ses hızı {speed_text}, yazma hızı {write_text}")
     
     # ==================== GİTHUB PDF SİSTEMİ ====================
     def setup_directories(self):
@@ -415,10 +429,10 @@ class BrailleBookReader:
     def setup_gpio(self):
         """GPIO pinlerini ayarla"""
         try:
-            # Röle pinleri
+            # Röle pinleri - LOW = Röle kapalı (solenoid pasif)
             for pin in GPIOPins.RELAY_PINS:
                 GPIO.setup(pin, GPIO.OUT)
-                GPIO.output(pin, GPIO.LOW)
+                GPIO.output(pin, GPIO.LOW)  # Başlangıçta tüm röleler KAPALI
             
             # Buton pinleri
             for pin in GPIOPins.ALL_BUTTONS:
@@ -427,19 +441,23 @@ class BrailleBookReader:
                 self.button_press_start[pin] = 0
                 self.last_button_time[pin] = time.time()
             
-            print("✅ GPIO ayarlandı")
+            print("✅ GPIO ayarlandı - Tüm röleler başlangıçta kapalı")
             
         except Exception as e:
             print(f"❌ GPIO hatası: {e}")
     
     def check_buttons(self):
-        """Butonları kontrol et"""
+        """Butonları kontrol et - DEBOUNCE ile"""
         current_time = time.time()
         
         for pin in GPIOPins.ALL_BUTTONS:
             try:
                 current_state = GPIO.input(pin)
                 last_state = self.button_states.get(pin, GPIO.HIGH)
+                
+                # Debounce kontrolü (50ms)
+                if current_time - self.last_button_time[pin] < 0.05:
+                    continue
                 
                 # Buton basıldı
                 if current_state == GPIO.LOW and last_state == GPIO.HIGH:
@@ -468,6 +486,14 @@ class BrailleBookReader:
     
     def handle_button_press(self, pin):
         """Kısa basma işleyici"""
+        current_time = time.time()
+        
+        # Double press koruması (300ms)
+        if current_time - self.button_debounce[pin] < 0.3:
+            return
+        
+        self.button_debounce[pin] = current_time
+        
         with self.lock:
             if pin == GPIOPins.BUTTON_NEXT:
                 self.next_book()
@@ -476,8 +502,10 @@ class BrailleBookReader:
             elif pin == GPIOPins.BUTTON_MODE:
                 self.next_mode()
             elif pin == GPIOPins.BUTTON_SPEED_UP:
+                print("⬆️ Hız artırma butonuna basıldı")
                 self.adjust_speed(increase=True)
             elif pin == GPIOPins.BUTTON_SPEED_DOWN:
+                print("⬇️ Hız azaltma butonuna basıldı")
                 self.adjust_speed(increase=False)
             elif pin == GPIOPins.BUTTON_UPDATE:
                 self.manual_update()
@@ -547,7 +575,7 @@ class BrailleBookReader:
         
         if self.is_paused:
             self.speak("Duraklatıldı")
-            self.clear_solenoids()
+            self.clear_solenoids()  # Duraklatma sırasında röleleri kapat
         else:
             self.speak("Devam ediliyor")
     
@@ -587,29 +615,47 @@ class BrailleBookReader:
         }
     
     def set_solenoids(self, pattern):
-        """Solenoidleri ayarla"""
+        """Solenoidleri ayarla - 1 = HIGH (Aktif), 0 = LOW (Pasif)"""
         for i, state in enumerate(pattern[:6]):
             if i < len(GPIOPins.RELAY_PINS):
-                GPIO.output(GPIOPins.RELAY_PINS[i], GPIO.HIGH if state else GPIO.LOW)
+                if state == 1:
+                    GPIO.output(GPIOPins.RELAY_PINS[i], GPIO.HIGH)
+                else:
+                    GPIO.output(GPIOPins.RELAY_PINS[i], GPIO.LOW)
     
     def clear_solenoids(self):
-        """Solenoidleri temizle"""
+        """Tüm solenoidleri KAPAT (LOW)"""
         for pin in GPIOPins.RELAY_PINS:
             GPIO.output(pin, GPIO.LOW)
     
     def write_character_fast(self, char):
-        """Bir karakteri HIZLI yaz (6 harf ≈ 2 saniye)"""
+        """Bir karakteri FİZİKSEL olarak doğru şekilde yaz"""
         char_lower = char.lower()
         if char_lower in self.braille_map:
             pattern = self.braille_map[char_lower]
+            
+            # Solenoidleri aktif et
             self.set_solenoids(pattern)
-            time.sleep(self.write_speed)  # Hızlı yazma
+            
+            # SOLENOİDLERİN YUKARI ÇIKMASI İÇİN YETERLİ SÜRE BEKLE
+            time.sleep(self.solenoid_up_time)
+            
+            # Karakteri yazma süresi (hıza göre ayarlanır)
+            time.sleep(max(0.1, self.write_speed - self.solenoid_up_time))
+            
+            # Solenoidleri kapat
             self.clear_solenoids()
-            time.sleep(0.02)  # Çok kısa harf arası boşluk
+            
+            # SOLENOİDLERİN AŞAĞI İNMESİ İÇİN YETERLİ SÜRE BEKLE
+            time.sleep(self.solenoid_down_time)
+            
+            # Harf arası boşluk
+            time.sleep(0.03)
             return True
         elif char == ' ':
-            # Boşluk için kısa bekle
-            time.sleep(self.write_speed * 2)
+            # Boşluk için daha uzun bekle
+            self.clear_solenoids()
+            time.sleep(self.write_speed * 3)
             return True
         return False
     
@@ -670,6 +716,9 @@ class BrailleBookReader:
         if not self.selected_book:
             return
         
+        # Her okuma başlamadan önce solenoidleri kapat
+        self.clear_solenoids()
+        
         self.stop_event.set()
         self.is_playing = False
         self.is_paused = False
@@ -695,6 +744,9 @@ class BrailleBookReader:
             self.current_position = 0
         
         self.is_playing = True
+        
+        # Başlamadan önce tekrar solenoidleri kontrol et
+        self.clear_solenoids()
         
         if self.modes[self.current_mode] == "sadece_yazma":
             self.mode_write_only()
@@ -736,6 +788,7 @@ class BrailleBookReader:
                     self.speak_async(f"Yüzde {int(percent_complete)} tamamlandı")
         
         self.is_playing = False
+        self.clear_solenoids()  # Mod bittiğinde solenoidleri kapat
         self.save_progress()
         
         if self.current_position >= total_chars:
@@ -795,6 +848,7 @@ class BrailleBookReader:
             time.sleep(0.1)
         
         self.is_playing = False
+        self.clear_solenoids()  # Mod bittiğinde solenoidleri kapat
         self.save_progress()
         
         if read_position >= total_chars:
@@ -863,6 +917,7 @@ class BrailleBookReader:
         # MOD BİTİŞİ
         if not self.is_paused:
             self.is_playing = False
+            self.clear_solenoids()  # Mod bittiğinde solenoidleri kapat
             self.save_progress()
             
             if self.current_position >= total_chars:
@@ -923,11 +978,12 @@ class BrailleBookReader:
             if char in self.braille_map:
                 self.set_solenoids(self.braille_map[char])
                 time.sleep(1.5)
-                self.clear_solenoids()
+                self.clear_solenoids()  # Her harften sonra solenoidleri kapat
                 time.sleep(0.3)
         
         if self.stop_event.is_set() or not self.is_playing:
             self.is_playing = False
+            self.clear_solenoids()  # Durdurulduğunda solenoidleri kapat
             self.speak("Eğitim durduruldu.")
             return
         
@@ -947,11 +1003,12 @@ class BrailleBookReader:
             if char in self.braille_map:
                 self.set_solenoids(self.braille_map[char])
                 time.sleep(1.5)
-                self.clear_solenoids()
+                self.clear_solenoids()  # Her rakamdan sonra solenoidleri kapat
                 time.sleep(0.3)
         
         if self.stop_event.is_set() or not self.is_playing:
             self.is_playing = False
+            self.clear_solenoids()  # Durdurulduğunda solenoidleri kapat
             self.speak("Eğitim durduruldu.")
             return
         
@@ -971,10 +1028,11 @@ class BrailleBookReader:
             if char in self.braille_map:
                 self.set_solenoids(self.braille_map[char])
                 time.sleep(1.5)
-                self.clear_solenoids()
+                self.clear_solenoids()  # Her işaretten sonra solenoidleri kapat
                 time.sleep(0.3)
         
         self.is_playing = False
+        self.clear_solenoids()  # Mod bittiğinde solenoidleri kapat
         self.speak("Braille eğitimi tamamlandı. Tüm harfleri, rakamları ve noktalama işaretlerini öğrendiniz.")
     
     # ==================== İLERLEME YÖNETİMİ ====================
@@ -1030,7 +1088,7 @@ class BrailleBookReader:
         self.is_playing = False
         
         time.sleep(0.3)
-        self.clear_solenoids()
+        self.clear_solenoids()  # Kapanmadan önce solenoidleri kapat
         self.save_progress()
         GPIO.cleanup()
         print("✅ Sistem kapatıldı")
@@ -1042,12 +1100,11 @@ def main():
     print("🎵 BRAİLLE KİTAP OKUYUCU - PİPER TTS SÜRÜMÜ")
     print("=" * 60)
     print("🎯 ÖZELLİKLER:")
-    print("  • 6 harf ≈ 2 saniye yazma")
-    print("  • Sürekli okuma/yazma modu")
-    print("  • Duraklatma özelliği (Onay tuşu)")
-    print("  • Baştan başlatma (İleri tuşuna 2sn basılı tut)")
-    print("  • PİPER TTS subprocess ile çalışır (echo + pipe)")
-    print("  • TÜM MODLARDA KARAKTER SINIRI YOK - KİTAP BİTENE KADAR DEVAM")
+    print("  • Fiziksel solenoid kontrolü iyileştirildi")
+    print("  • Hız kontrolü butonları düzeltildi")
+    print("  • Debounce eklenerek buton tepkisi iyileştirildi")
+    print("  • Solenoidler için yukarı çıkma/aşağı inme süreleri eklendi")
+    print("  • Röleler sadece yazarken aktif")
     print("=" * 60)
     
     # Bağımlılıkları kontrol et
@@ -1071,4 +1128,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
